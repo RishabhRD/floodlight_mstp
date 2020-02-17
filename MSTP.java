@@ -46,6 +46,7 @@ public class MSTP implements IFloodlightModule ,IOFMessageListener, IOFSwitchLis
 	protected int curSeqNumber = 0;
 	protected TreeMap<IOFSwitch,ArrayList<OFPort>> blockedMap;
 	protected IOFSwitch rootSwitch;
+	protected HashMap<IOFSwitch,Integer> costMap;
 	protected TreeMap<DatapathId,IOFSwitch> knownSwitches;
 	@Override
 	public Collection<Class<? extends IFloodlightService>> getModuleServices() {
@@ -71,7 +72,7 @@ public class MSTP implements IFloodlightModule ,IOFMessageListener, IOFSwitchLis
 		floodlightProviderService = context.getServiceImpl(IFloodlightProviderService.class);
 		blockedMap = new TreeMap<>();
 		switchService = context.getServiceImpl(IOFSwitchService.class);
-
+		costMap = new HashMap<>();
 	}
 
 	@Override
@@ -84,7 +85,7 @@ public class MSTP implements IFloodlightModule ,IOFMessageListener, IOFSwitchLis
 	@Override
 	public String getName() {
 		// TODO Auto-generated method stub
-		return null;
+		return "MSTP";
 	}
 
 	@Override
@@ -109,6 +110,7 @@ public class MSTP implements IFloodlightModule ,IOFMessageListener, IOFSwitchLis
 	public void switchAdded(DatapathId switchId) {
 		// TODO Auto-generated method stub
 		rootSwitch = null;
+		costMap.clear();
 		unblockAll();
 		IOFSwitch sw = switchService.getSwitch(switchId);
 		knownSwitches.put(switchId,sw);
@@ -119,6 +121,7 @@ public class MSTP implements IFloodlightModule ,IOFMessageListener, IOFSwitchLis
 	public void switchRemoved(DatapathId switchId) {
 		// TODO Auto-generated method stub
 		knownSwitches.remove(switchId);
+		costMap.clear();
 		removeBlockedSwitchWithDpid(switchId);
 		rootSwitch = null;
 		unblockAll();
@@ -163,8 +166,9 @@ public class MSTP implements IFloodlightModule ,IOFMessageListener, IOFSwitchLis
 		eth.setEtherType(EthType.BRIDGING);
 		BPDU bpdu = new BPDU(BPDU.BPDUType.CONFIG);
 		bpdu.setSequenceNumber(this.curSeqNumber);
-		bpdu.setRootCostPath(0);
+		bpdu.setRootCostPath(1);
 		eth.setPayload(bpdu);
+		costMap.put(sw,1);
 		ArrayList<OFAction> actions = new ArrayList<>();
 		for(OFPortDesc port : ports){
 			actions.add(sw.getOFFactory().actions().buildOutput().setPort(port.getPortNo()).setMaxLen(0xffFFffFF).build());
