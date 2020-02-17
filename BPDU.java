@@ -1,22 +1,17 @@
 
-package net.floodlightcontroller.packet;
+package net.floodlightcontroller.floodlight_mstp;
 
+import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 
-/**
- * This class is a Rapid Spanning Tree Protocol
- * Bridge Protocol Data Unit
- * @author alexreimers
- */
+import org.projectfloodlight.openflow.types.OFPort;
+
+import net.floodlightcontroller.packet.BasePacket;
+import net.floodlightcontroller.packet.IPacket;
+import net.floodlightcontroller.packet.LLC;
+
 public class BPDU extends BasePacket {
-    public enum BPDUType {
-        CONFIG,
-        TOPOLOGY_CHANGE;
-    }
-    
-    private final long destMac = 0x0180c2000000L; // 01-80-c2-00-00-00
-    
-    // TODO - check this for RSTP
+    private final long destMac = 0x0180c2000000L; // 01-80-c2-00-00-00 
     private LLC llcHeader;
     private short protocolId = 0;
     private byte version = 0;
@@ -26,12 +21,11 @@ public class BPDU extends BasePacket {
     private int rootPathCost;
     private byte[] senderBridgeId; // switch cluster MAC
     private short portId; // port it was transmitted from
-    private short messageAge; // 256ths of a second
-    private short maxAge; // 256ths of a second
+    private int seqNumber; // sequence number of current packet
     private short helloTime; // 256ths of a second
     private short forwardDelay; // 256ths of a second
     
-    public BPDU(BPDUType type) {
+    public BPDU() {
         rootBridgeId = new byte[8];
         senderBridgeId = new byte[8];
         
@@ -40,17 +34,6 @@ public class BPDU extends BasePacket {
         llcHeader.setSsap((byte) 0x42);
         llcHeader.setCtrl((byte) 0x03);
         
-        switch(type) {
-            case CONFIG:
-                this.type = 0x0;
-                break;
-            case TOPOLOGY_CHANGE:
-                this.type = (byte) 0x80; // 1000 0000
-                break;
-            default:
-                this.type = 0;
-                break;
-        }
     }
     
     @Override
@@ -79,8 +62,7 @@ public class BPDU extends BasePacket {
             bb.putInt(rootPathCost);
             bb.put(senderBridgeId, 0, senderBridgeId.length);
             bb.putShort(portId);
-            bb.putShort(messageAge);
-            bb.putShort(maxAge);
+	    bb.putInt(seqNumber);
             bb.putShort(helloTime);
             bb.putShort(forwardDelay);
         }
@@ -106,17 +88,47 @@ public class BPDU extends BasePacket {
             this.rootPathCost = bb.getInt();
             bb.get(this.senderBridgeId, 0, 6);
             this.portId = bb.getShort();
-            this.messageAge = bb.getShort();
-            this.maxAge = bb.getShort();
+	    this.seqNumber = bb.getInt();
             this.helloTime = bb.getShort();
             this.forwardDelay = bb.getShort();
         }
-        // TODO should we set other fields to 0?
         
         return this;
     }
 
     public long getDestMac() {
         return destMac;
+    }
+    public void setPort(OFPort port){
+	    this.portId = port.getShortPortNumber();
+    }
+    public OFPort getPort(){
+	    return OFPort.ofShort(portId);
+    }
+    public int getSequenceNumber(){
+	    return seqNumber;
+    }
+    public void setSequenceNumber(int seq){
+	    this.seqNumber = seq;
+    }
+    public void setRootCostPath(int path){
+	    this.rootPathCost = path;
+    }
+    public int getRootCostPath(){
+	    return this.rootPathCost;
+    }
+    public byte[] getRootBridgeId(){
+	    return this.rootBridgeId;
+    }
+    public void setRootBridgeId(byte[] id) throws UnsupportedEncodingException{
+	    if(id.length!=8) throw new UnsupportedEncodingException("Not a valid bridge id");
+	    else this.rootBridgeId = id;
+    }
+    public void setSenderBridgeId(byte[] id) throws UnsupportedEncodingException{
+	    if(id.length!=8) throw new UnsupportedEncodingException("Now a valid bridge id");
+	    this.senderBridgeId = id;
+    }
+    public byte[] getSenderBridgeId(){
+	    return this.senderBridgeId;
     }
 }
