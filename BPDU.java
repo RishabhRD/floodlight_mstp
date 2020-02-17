@@ -1,7 +1,6 @@
 
 package net.floodlightcontroller.floodlight_mstp;
 
-import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 
 import org.projectfloodlight.openflow.types.OFPort;
@@ -11,6 +10,10 @@ import net.floodlightcontroller.packet.IPacket;
 import net.floodlightcontroller.packet.LLC;
 
 public class BPDU extends BasePacket {
+    public enum BPDUType {
+        CONFIG,
+        TOPOLOGY_CHANGE;
+    }
     private final long destMac = 0x0180c2000000L; // 01-80-c2-00-00-00 
     private LLC llcHeader;
     private short protocolId = 0;
@@ -24,8 +27,8 @@ public class BPDU extends BasePacket {
     private int seqNumber; // sequence number of current packet
     private short helloTime; // 256ths of a second
     private short forwardDelay; // 256ths of a second
-    
-    public BPDU() {
+
+    public BPDU(BPDUType type) {
         rootBridgeId = new byte[8];
         senderBridgeId = new byte[8];
         
@@ -34,7 +37,19 @@ public class BPDU extends BasePacket {
         llcHeader.setSsap((byte) 0x42);
         llcHeader.setCtrl((byte) 0x03);
         
+        switch(type) {
+            case CONFIG:
+                this.type = 0x0;
+                break;
+            case TOPOLOGY_CHANGE:
+                this.type = (byte) 0x80; // 1000 0000
+                break;
+            default:
+                this.type = 0;
+                break;
+        }
     }
+    
     
     @Override
     public byte[] serialize() {
@@ -120,13 +135,19 @@ public class BPDU extends BasePacket {
     public byte[] getRootBridgeId(){
 	    return this.rootBridgeId;
     }
-    public void setRootBridgeId(byte[] id) throws UnsupportedEncodingException{
-	    if(id.length!=8) throw new UnsupportedEncodingException("Not a valid bridge id");
-	    else this.rootBridgeId = id;
+    public boolean setRootBridgeId(byte[] id){ 
+	    if (id.length!=8) return false;
+	    else {
+		    this.rootBridgeId = id;
+		    return true;
+	    }
     }
-    public void setSenderBridgeId(byte[] id) throws UnsupportedEncodingException{
-	    if(id.length!=8) throw new UnsupportedEncodingException("Now a valid bridge id");
-	    this.senderBridgeId = id;
+    public boolean setSenderBridgeId(byte[] id){
+	    if(id.length!=8) return false;
+	    else{
+		    this.senderBridgeId = id;
+		    return true;
+	    }
     }
     public byte[] getSenderBridgeId(){
 	    return this.senderBridgeId;
