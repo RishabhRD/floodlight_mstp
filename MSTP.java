@@ -12,13 +12,16 @@ import java.util.TreeMap;
 
 import org.projectfloodlight.openflow.protocol.OFFactory;
 import org.projectfloodlight.openflow.protocol.OFMessage;
+import org.projectfloodlight.openflow.protocol.OFPacketIn;
 import org.projectfloodlight.openflow.protocol.OFPacketOut;
 import org.projectfloodlight.openflow.protocol.OFPortConfig;
 import org.projectfloodlight.openflow.protocol.OFPortDesc;
 import org.projectfloodlight.openflow.protocol.OFPortMod;
 import org.projectfloodlight.openflow.protocol.OFType;
+import org.projectfloodlight.openflow.protocol.OFVersion;
 import org.projectfloodlight.openflow.protocol.action.OFAction;
 import org.projectfloodlight.openflow.protocol.action.OFActionOutput;
+import org.projectfloodlight.openflow.protocol.match.MatchField;
 import org.projectfloodlight.openflow.types.DatapathId;
 import org.projectfloodlight.openflow.types.EthType;
 import org.projectfloodlight.openflow.types.MacAddress;
@@ -46,7 +49,7 @@ public class MSTP implements IFloodlightModule ,IOFMessageListener, IOFSwitchLis
 	protected int curSeqNumber = 0;
 	protected TreeMap<IOFSwitch,ArrayList<OFPort>> blockedMap;
 	protected IOFSwitch rootSwitch;
-	protected HashMap<IOFSwitch,Integer> costMap;
+	protected HashMap<IOFSwitch,PortCost> costMap;
 	protected TreeMap<DatapathId,IOFSwitch> knownSwitches;
 	@Override
 	public Collection<Class<? extends IFloodlightService>> getModuleServices() {
@@ -103,7 +106,46 @@ public class MSTP implements IFloodlightModule ,IOFMessageListener, IOFSwitchLis
 	@Override
 	public Command receive(IOFSwitch sw, OFMessage msg, FloodlightContext cntx) {
 		// TODO Auto-generated method stub
-		return null;
+		if(rootSwitch == null) return Command.CONTINUE;
+		if(rootSwitch.equals(sw)) return Command.CONTINUE;
+		if(!msg.getType().equals(OFType.PACKET_IN)){
+			return Command.CONTINUE;
+		}
+		OFPacketIn pi = (OFPacketIn) msg;
+		Ethernet eth = IFloodlightProviderService.bcStore.get(cntx, IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
+		OFPort inPort = (pi.getVersion().compareTo(OFVersion.OF_12) < 0 ? pi.getInPort() : pi.getMatch().get(MatchField.IN_PORT));
+		if(!BPDUUtil.isBPDU(eth)) return Command.CONTINUE;
+		BPDU bpdu = (BPDU) eth.getPayload();
+		if(bpdu.getSequenceNumber()!=curSeqNumber) return Command.CONTINUE;
+		int packetCost = bpdu.getRootCostPath();
+		if(costMap.containsKey(sw)){
+			PortCost pair = costMap.get(sw);
+			if(packetCost >= pair.getCost()){
+				block(sw,inPort);
+				return Command.CONTINUE;
+			}else{
+				if(!pair.getPort().equals(inPort)){
+					block(sw,pair.getPort());
+					pair.setPort(inPort);
+				}
+				pair.setCost(packetCost);
+			}
+		}else{
+			costMap.put(sw,new PortCost(inPort,packetCost));
+		}
+		bpdu.setRootCostPath(bpdu.getRootCostPath()+1);
+		ArrayList<OFAction> actions = new ArrayList<>();
+		for(OFPortDesc port : sw.getPorts()){
+			if(inPort.equals(port.getPortNo())) continue;
+			bpdu.setPort(port.getPortNo());
+			bpdu.setSenderBridgeId(BPDUUtil.createBridgeId(sw,port.getPortNo()));
+			eth.setSourceMACAddress(port.getHwAddr());
+			actions.add(sw.getOFFactory().actions().buildOutput().setPort(port.getPortNo()).setMaxLen(0xffFFffFF).build());
+			OFPacketOut.Builder builder = sw.getOFFactory().buildPacketOut().setInPort(OFPort.CONTROLLER).setActions(actions).setData(eth.serialize());
+			sw.write(builder.build());
+			actions.clear();
+		}
+		return Command.CONTINUE;
 	}
 
 	@Override
@@ -168,7 +210,6 @@ public class MSTP implements IFloodlightModule ,IOFMessageListener, IOFSwitchLis
 		bpdu.setSequenceNumber(this.curSeqNumber);
 		bpdu.setRootCostPath(1);
 		eth.setPayload(bpdu);
-		costMap.put(sw,1);
 		ArrayList<OFAction> actions = new ArrayList<>();
 		for(OFPortDesc port : ports){
 			actions.add(sw.getOFFactory().actions().buildOutput().setPort(port.getPortNo()).setMaxLen(0xffFFffFF).build());
